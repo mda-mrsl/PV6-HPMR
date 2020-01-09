@@ -1,0 +1,498 @@
+;****************************************************************
+;
+; Copyright (c) 2001 - 2003
+; Bruker BioSpin MRI GmbH
+; D-76275 Ettlingen, Germany
+;
+; All Rights Reserved
+;
+; FLASH - a gradient echo imaging method
+;
+;****************************************************************
+;
+; d0 - TR padding
+; d1 - T1 padding
+; d2 - T2 padding
+; d3 = PVM_RiseTime
+; d4 = PVM_RampTime
+; d8 = SCON / BLKTR_MAN (Amplifier preblanking)
+
+#include <MRI.include>
+preset off
+
+define delay denab
+
+define list<phase> phaselist = {$RFPhaseList}
+
+;--KAM add for hpMR
+if( KAM_ExcMode != Normal_Exc)
+{
+  define list <grad_shape> excGrad = {$KAM_ExcGradShape}
+
+  define delay excRfDelay = {$KAM_ExcRfDelay}
+  "excRfDelay = excRfDelay*1e-6"
+}
+if( KAM_ReadMode != Normal_Read)
+{
+  define list <grad_shape> readGradX = {$KAM_ReadShapeX}
+  define list <grad_shape> readGradY = {$KAM_ReadShapeY}
+  define list <grad_shape> readGradZ = {$KAM_ReadShapeZ}
+
+  define delay readAcqDelay = {$KAM_ReadAcqDelay}
+  "readAcqDelay = readAcqDelay*1e-6"
+}
+if( KAM_PrepMode != No_Prep)
+{
+  define list <grad_shape> prepGradX = {$KAM_PrepShapeX}
+  define list <grad_shape> prepGradY = {$KAM_PrepShapeY}
+  define list <grad_shape> prepGradZ = {$KAM_PrepShapeZ}
+
+  define list <loopcounter> prepOnOut = {$KAM_PrepGradOnOuter}
+  define list <loopcounter> prepOnIn  = {$KAM_PrepGradOnInner}
+}
+;--end add
+
+;--KAM add for IDEAL
+define delay repdelay = {$KAM_IdealRepFill}
+"repdelay = repdelay/1000"
+define loopcounter echo
+"echo = 1"
+;--end add
+
+;--KAM add for variable flip angles
+define list<power> vfa = {$KAM_VFAWatts}
+;--end add
+
+;--KAM add for variable offset frequencies
+define list<frequency> voft = {$KAM_VOFTxHertz}
+define list<frequency> vofr = {$KAM_VOFRxHertz}
+define list<frequency> fsat = {$KAM_SatFreq}
+;--end add
+
+;--KAM add for decoupling
+if( PVM_DecOnOff == On)
+{
+    define delay DecD0 = {$PVM_DecD0}
+    define delay DecD1 = {$PVM_DecD1}
+    define delay DecD1u
+    "DecD1u = DecD1 - 1u"
+}
+
+subroutine kam_acqdec()
+{
+    if( PVM_DecOnOff == Off)
+    {
+        aqq	ADC_START
+    } else {
+        1u  ADC_START
+        if( PVM_DecMode == Continuous_Wave)
+        {
+            DecD0   cw:f2
+        }
+        if( PVM_DecMode == Composite_Pulse)
+        {
+            DecD0   cpd2:f2
+        }
+        DecD1u  do:f2
+    }
+}
+;--end add
+
+;--KAM add for mutislice spec-spat excitations
+define loopcounter slnum
+"slnum = 1"
+define loopcounter fidecho
+if( KAM_FidEcho == Yes)
+{
+  "fidecho = 1"
+} else {
+  "fidecho = 0"
+}
+define loopcounter satecho
+if( KAM_SatEcho == Yes)
+{
+  "satecho = 1"
+} else {
+  "satecho = 0"
+}
+
+subroutine kam_spspslice()
+{
+    if "slnum == 1"
+    {
+        (p1:sp1(currentpower) phaselist):f1
+    }
+    if "slnum == 2"
+    {
+        (p2:sp2(currentpower) phaselist):f1
+    }
+    if "slnum == 3"
+    {
+        (p3:sp3(currentpower) phaselist):f1
+    }
+    if "slnum == 4"
+    {
+        (p4:sp4(currentpower) phaselist):f1
+    }
+    if "slnum == 5"
+    {
+        (p5:sp5(currentpower) phaselist):f1
+    }
+}
+;--end add
+
+"denab =  d3 - de"
+"l3 = l1 + ds"
+
+#include <PrepModulesHead.mod>
+
+;subr FlowSatInit()
+
+INIT_DEVICES
+
+;--KAM add for HyperSense trigger
+if( KAM_HSTrig)
+{
+  10u ECG_STAMP_LOW
+  10u trignl1
+  10u GRAD_SYNC
+  10u ECG_STAMP_HIGH
+}
+;--end add
+
+#define r2d ACQ_spatial_phase_1
+#define r3d ACQ_spatial_phase_2
+
+grad_zero_for_gs <r2d, r3d>
+
+decr,   r2d.dec
+        lo to decr times DS
+
+        10u recph ph1
+start,  10u
+
+;if (PVM_BlBloodOnOff == On)
+;{
+;  subr TriggerPhase()
+;}
+;subr BlBlood(ph0)
+;subr TriggerPhase()
+;subr SliceSelIr()
+;subr Tagging()
+
+;----------------------------------start of the main loop ----------
+;--KAM swap out for variable offset frequencies
+;slice, 	10u fq8(receive):f1
+;--swap in
+slice,
+if( KAM_SpecExc == No)
+{
+    10u fq8(receive):f1
+} else {
+    if "fidecho == 1" {
+        10u fq8(receive):f1
+    } else {
+        if "satecho == 1" {
+            10u fsat(receive):f1
+        } else {
+            10u vofr(receive):f1
+        }
+    }
+}
+;--end swap
+	20u reload B0
+
+;----------------------------------preparation modules -------------
+;subr TriggerSlice()
+;subr FlowSat()
+;subr FovSat()
+;subr MagTrans()
+;subr FatSup()
+
+        d6	grad_ramp{0, 0, g9}
+;----------------------------------slice selection------------------
+
+;--KAM add alternate excitation mode
+if( KAM_ExcMode == Normal_Exc)
+{
+
+    ;--KAM swap out for variable flip angles
+    ;   d3      grad_ramp{0, 0, g0} fq1:f1
+    ;    d8	gatepulse 1
+    ;   (p0:sp0 phaselist):f1
+    ;--swap in
+
+      ;--KAM swap out for variable offset frequencies
+      ;d3 	grad_ramp{0, 0, g0}     fq1:f1 vfa:f1
+      ;--swap in
+      if( KAM_SpecExc == No)
+      {
+        d3 	grad_ramp{0, 0, g0}     fq1:f1 vfa:f1
+      } else {
+        d3  grad_ramp{0, 0, g0}     voft:f1 vfa:f1
+      }
+      ;--end swap
+
+        d8	gatepulse 1
+        if "fidecho == 1"
+        {
+            d16
+            (p0:sp0 phaselist):f1
+        } else {
+            if "satecho == 1" {
+                d17
+                (p63:sp63 phaselist):f1
+            } else {
+                (p1:sp1(currentpower) phaselist):f1
+            }
+        }
+
+    ;--end swap
+
+} else {
+
+    ;--KAM swap out for variable flip angles and offset frequencies
+        ;d3  grad_off    fq1:f1
+        ;    d8	gatepulse 1
+	;(p0:sp0 phaselist):f1
+    ;--swap in
+        if( KAM_SpecExc == No)
+        {
+          if "fidecho == 1" {
+            d3      grad_ramp{0, 0, g0} fq1:f1
+            d8	gatepulse 1
+            excRfDelay
+            d16
+            (p0:sp0 phaselist):f1
+          } else {
+            d3      grad_off    fq1:f1 vfa:f1
+            d8	gatepulse 1
+            excRfDelay gc_control
+            {
+              p1 grad_shape{0, 0, excGrad()*100}
+            }
+            ;(p1:sp1(currentpower) phaselist):f1
+	        subr kam_spspslice()
+          }
+        } else {
+
+          if "fidecho == 1" {
+            d3      grad_ramp{0, 0, g0} voft:f1
+            d8	gatepulse 1
+            excRfDelay
+            d16
+            (p0:sp0 phaselist):f1
+          } else {
+            if "satecho == 1" {
+              d3      grad_off    fsat:f1
+              d8	gatepulse 1
+              excRfDelay
+              (p63:sp63 phaselist):f1
+              d17
+            } else {
+              d3      grad_off    voft:f1 vfa:f1
+              d8	gatepulse 1
+              excRfDelay gc_control
+              {
+                p1 grad_shape{0, 0, excGrad()*100}
+              }
+              ;(p1:sp1(currentpower) phaselist):f1
+	          subr kam_spspslice()
+            }
+          }
+        }
+
+    ;--end swap
+
+}
+;--KAM end add
+
+	d4 	grad_off
+;----------------------slice rephase, read dephase, phase encoding----
+
+;--KAM swap out for alternate excitation modes
+	;d10 	grad_ramp{g2, r2d*g3, g1+r3d*g4}
+;--swap in
+        if( KAM_ExcMode == Normal_Exc) {
+            d10 	grad_ramp{g2, r2d*g3, g1+r3d*g4}
+        } else {
+          if "fidecho == 1" {
+            d10 	grad_ramp{g2, r2d*g3, g1+r3d*g4}
+          } else {
+            d10 	grad_ramp{g2, r2d*g3, r3d*g4}
+          }
+        }
+;--end swap
+
+
+;--KAM swap out for variable IDEAL echo shifting delay
+;	d2 	grad_off
+;--swap in
+	vd 	grad_off
+;--KAM end swap
+
+;--KAM add for preparation gradients
+if( KAM_PrepMode != No_Prep) {
+    if "prepOnOut == -1 || prepOnIn == -1" {
+    } else {
+        if "prepOnOut == 0 || prepOnIn == 0" {
+            d15
+        } else {
+            d15     grad_shape<magnet_coord> {prepGradX()*100, prepGradY()*100, prepGradZ()*100}
+        }
+    }
+}
+;--KAM end add
+
+;--KAM add alternate readout mode
+if( KAM_ReadMode == Normal_Read) {
+;----------------------------------frequency encoding---------------
+    if( PVM_DecOnOff == Off)
+    {
+        denab   grad_ramp{g5, 0, 0}
+    } else {
+        denab   grad_ramp{g5, 0, 0} pl2:f2
+    }
+	ADC_INIT_B(NOPH, phaselist)  ;ph1 is used (see recph)
+	subr kam_acqdec()
+} else {
+    if( PVM_DecOnOff == Off)
+    {
+        denab
+    } else {
+        denab   pl2:f2
+    }
+	ADC_INIT_B(NOPH, phaselist)  ;ph1 is used (see recph)
+
+    ;--KAM add for IDEAL fid echo
+    if "fidecho == 1" {
+;----------------------------------fid echo readout---------------
+        readAcqDelay gc_control
+        {
+            d13
+        }
+	    subr kam_acqdec()
+        d14
+    } else {
+;----------------------------------arbitrary readout---------------
+        readAcqDelay gc_control
+        {
+            d13 grad_shape{readGradX()*100, readGradY()*100, readGradZ()*100}
+            ;--KAM hack to use 13C readouts for 1H imaging
+            ;d13 grad_shape{readGradX()*25, readGradY()*25, readGradZ()*25}
+        }
+	    subr kam_acqdec()
+        d14
+    }
+}
+;--KAM end add
+
+;--KAM add for preparation gradient delay compensation
+if( KAM_PrepMode != No_Prep) {
+    if "prepOnOut == -1 || prepOnIn == -1" {
+        d15
+    }
+}
+;--KAM end add
+
+;----------------------------------read spoiler + phase encoding----
+        d11     grad_ramp{g6, r2d*g7, r3d*g8} ; 2nd and 3rd dims
+	d12     grad_ramp{g6, 0, 0}
+	d3	grad_off
+        d0	ADC_END
+;----------------------------------slice and movie loop-----------------------
+;subr FlowSatInc()
+if(NI > 1)
+{
+	2.5u grad_matrix.inc
+	lo to slice times NI
+}
+        d20
+        1u  phaselist.inc    ;phase list for RF spoiling
+
+;----------------------------------averaging loop-------------------
+if(NA > 1)
+{
+	lo to start times NA
+}
+
+;--KAM add for multislice spec-spat excitations
+    if "fidecho == 1" {
+      "fidecho = 0"
+      goto start
+    } else {
+      if "satecho == 1" {
+        "satecho = 0"
+        goto start
+      } else {
+        "slnum++"
+      }
+    }
+    lo to start times l7
+    "slnum = 1"
+;--end add
+
+;----------------------------------2d loop--------------------------
+	r2d.inc
+
+;--KAM add for IDEAL echo time shifting, variable flip angles and offset frequencies
+    "echo++"
+    ivd
+    vfa.inc
+    voft.inc
+    vofr.inc
+    if( KAM_PrepMode != No_Prep) {
+        prepOnIn.inc
+    }
+;--end add
+
+	lo to start times l3
+        "l3=l1"
+
+;--KAM add for IDEAL, variable flip angles and offset frequencies
+    "echo = 1"
+    "vdidx = 0"
+    if( KAM_FidEcho == Yes) {
+      "fidecho = 1"
+    }
+    if( KAM_SatEcho == Yes) {
+      "satecho = 1"
+    }
+    vfa.res
+    voft.res
+    vofr.res
+;--end add
+
+;----------------------------------3d loop--------------------------
+	r3d.inc
+	lo to start times l2
+        2.5u
+        lo to start times NAE
+        2.5u
+;        subr Evolution()
+        2.5u
+
+;--KAM add for IDEAL time course delay, prep grads switching
+        repdelay
+        if( KAM_PrepMode != No_Prep) {
+            prepOnOut.inc
+        }
+;--end add
+
+        lo to start times NR
+SETUP_GOTO(start)
+
+exit
+
+ph0 = 0
+ph1 = 0
+
+
+
+
+
+
+
+
+
+
