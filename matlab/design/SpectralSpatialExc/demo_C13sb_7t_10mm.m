@@ -15,12 +15,15 @@
 %
 %
 % KAM modified 7/30/2019
+%  Execute from the 'examples' directory of the Spectral-Spatial toolbox:
+%   https://github.com/LarsonLab/Spectral-Spatial-RF-Pulse-Design
+%  Select pulse #8 to obtain pulse shown in Figure 2
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %% add 'spectralspatial' and 'rf_tools' folders to path (mex files must be compiled)
-addpath ../..
-addpath ../../rf_tools
+addpath ..
+addpath ../rf_tools
 
 %% single band for high-field, small animal system
 fprintf(1, '\nHere is a similar pulse design, but for a 7T small-animal system\n\n');
